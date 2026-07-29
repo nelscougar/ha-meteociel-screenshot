@@ -1,0 +1,9 @@
+name: "Meteociel Screenshot"
+version: "1.0.0"
+slug: "meteociel_screenshot"
+description: "Capture périodique du graphique vent de meteociel (Le Dramont)"
+arch:
+  - amd64
+init: false
+map:
+  - config:rw
