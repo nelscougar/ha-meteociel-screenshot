@@ -1,5 +1,5 @@
 name: "Meteociel Screenshot"
-version: "1.0.1"
+version: "1.0.2"
 slug: "meteociel_screenshot"
 description: "Capture périodique du graphique vent de meteociel (Le Dramont)"
 arch:
