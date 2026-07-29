@@ -4,7 +4,5 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install
 COPY screenshot.js ./
-COPY run.sh /run.sh
-RUN chmod +x /run.sh
 
-CMD [ "/run.sh" ]
+CMD ["/bin/bash", "-c", "while true; do node /app/screenshot.js; sleep 360; done"]
