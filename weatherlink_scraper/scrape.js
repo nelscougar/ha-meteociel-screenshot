@@ -114,3 +114,48 @@ async function scrape() {
           friendly_name: 'Direction du vent',
           compass: match[1]
         });
+      }
+    }
+
+    if (ventMoyen) {
+      const kmh = toKmh(parseNumber(ventMoyen[1]));
+      if (kmh != null) {
+        await pushSensor('sensor.weatherlink_vent_moyen', kmh, {
+          unit_of_measurement: 'km/h',
+          friendly_name: 'Vent moyen (2 min)',
+          device_class: 'wind_speed',
+          state_class: 'measurement'
+        });
+      }
+    }
+
+    if (rafales) {
+      const kmh = toKmh(parseNumber(rafales[1]) ?? parseNumber(rafales[2]));
+      if (kmh != null) {
+        await pushSensor('sensor.weatherlink_rafales', kmh, {
+          unit_of_measurement: 'km/h',
+          friendly_name: 'Rafales de vent',
+          device_class: 'wind_speed',
+          state_class: 'measurement'
+        });
+      }
+    }
+  } finally {
+    await browser.close();
+    console.log('=== Fin du cycle ===');
+  }
+}
+
+(async () => {
+  try {
+    await scrape();
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] Échec, nouvelle tentative dans 10s:`, err.message);
+    await new Promise(r => setTimeout(r, 10000));
+    try {
+      await scrape();
+    } catch (err2) {
+      console.error(`[${new Date().toISOString()}] Deuxième échec, on abandonne ce cycle:`, err2.message);
+    }
+  }
+})();
