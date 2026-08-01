@@ -1,48 +1,28 @@
-const { chromium } = require('playwright');
-
-const URL = 'https://www.weatherlink.com/embeddablePage/show/d8f389c51427467eb5c4f266caaf78a9/summary';
-const HA_URL = 'http://supervisor/core/api/states';
-const TOKEN = process.env.SUPERVISOR_TOKEN;
-
-function parseNumber(str) {
-  if (!str) return null;
-  const match = str.replace(',', '.').match(/-?\d+(\.\d+)?/);
-  return match ? parseFloat(match[0]) : null;
-}
-
-const toKmh = (knots) => (knots != null ? +(knots * 1.852).toFixed(1) : null);
-
-async function pushSensor(entityId, state, attributes) {
-  const res = await fetch(`${HA_URL}/${entityId}`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ state, attributes })
-  });
-  if (!res.ok) {
-    console.error(`Erreur envoi ${entityId}: ${res.status} ${await res.text()}`);
-  } else {
-    console.log(`${entityId} = ${state}`);
-  }
-}
-
 async function scrape() {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
   try {
     await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 });
 
-    // Attendre que le tableau soit vraiment rempli (pas juste chargé)
-    await page.waitForFunction(() => {
-      return document.body.innerText.includes('Vitesse du vent');
-    }, { timeout: 15000 });
+    // Attendre que le tableau soit rempli (argument options en 3e position, pas 2e !)
+    try {
+      await page.waitForFunction(
+        () => document.body.innerText.includes('Vitesse du vent'),
+        null,
+        { timeout: 20000 }
+      );
+    } catch (e) {
+      console.log('Attente du texte "Vitesse du vent" expirée, on tente quand même l\'extraction.');
+      console.log('Aperçu du texte de la page:', (await page.innerText('body')).slice(0, 500));
+    }
+
     await page.waitForTimeout(1000);
 
     const rows = await page.$$eval('table tr', trs =>
       trs.map(tr => Array.from(tr.querySelectorAll('th,td')).map(td => td.textContent.trim()))
     );
+
+    console.log('DEBUG lignes extraites:', JSON.stringify(rows.slice(0, 15)));
 
     const findRow = (label) =>
       rows.find(cells => cells[0] && cells[0].toLowerCase().includes(label.toLowerCase()));
@@ -98,17 +78,7 @@ async function scrape() {
         });
       }
     }
-
-    console.log('DEBUG lignes extraites:', JSON.stringify(rows.slice(0, 15)));
   } finally {
     await browser.close();
   }
 }
-
-(async () => {
-  try {
-    await scrape();
-  } catch (err) {
-    console.error('Erreur scrape:', err.message);
-  }
-})();
