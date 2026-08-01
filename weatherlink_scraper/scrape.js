@@ -1,19 +1,56 @@
+const { chromium } = require('playwright');
+
+const URL = 'https://www.weatherlink.com/embeddablePage/show/d8f389c51427467eb5c4f266caaf78a9/summary';
+const HA_URL = 'http://supervisor/core/api/states';
+const TOKEN = process.env.SUPERVISOR_TOKEN;
+
+function parseNumber(str) {
+  if (!str) return null;
+  const match = str.replace(',', '.').match(/-?\d+(\.\d+)?/);
+  return match ? parseFloat(match[0]) : null;
+}
+
+const toKmh = (knots) => (knots != null ? +(knots * 1.852).toFixed(1) : null);
+
+async function pushSensor(entityId, state, attributes) {
+  console.log(`--> Envoi ${entityId} = ${state}`);
+  try {
+    const res = await fetch(`${HA_URL}/${entityId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ state, attributes })
+    });
+    const text = await res.text();
+    console.log(`    Réponse HA: HTTP ${res.status} - ${text.slice(0, 200)}`);
+  } catch (err) {
+    console.error(`    Exception réseau lors de l'envoi de ${entityId}:`, err.message);
+  }
+}
+
 async function scrape() {
+  console.log('=== Début du cycle ===');
+  console.log('TOKEN présent ?', TOKEN ? `oui (longueur ${TOKEN.length})` : 'NON - PROBLEME');
+
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
   try {
+    console.log('Chargement de la page WeatherLink...');
     await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 });
+    console.log('Page chargée.');
 
-    // Attendre que le tableau soit rempli (argument options en 3e position, pas 2e !)
     try {
       await page.waitForFunction(
         () => document.body.innerText.includes('Vitesse du vent'),
         null,
         { timeout: 20000 }
       );
+      console.log('Texte "Vitesse du vent" trouvé sur la page.');
     } catch (e) {
-      console.log('Attente du texte "Vitesse du vent" expirée, on tente quand même l\'extraction.');
-      console.log('Aperçu du texte de la page:', (await page.innerText('body')).slice(0, 500));
+      console.log('ATTENTION: texte "Vitesse du vent" non trouvé après 20s, on tente quand même.');
+      console.log('Aperçu texte page:', (await page.innerText('body')).slice(0, 500));
     }
 
     await page.waitForTimeout(1000);
@@ -22,6 +59,7 @@ async function scrape() {
       trs.map(tr => Array.from(tr.querySelectorAll('th,td')).map(td => td.textContent.trim()))
     );
 
+    console.log(`Nombre de lignes de tableau trouvées: ${rows.length}`);
     console.log('DEBUG lignes extraites:', JSON.stringify(rows.slice(0, 15)));
 
     const findRow = (label) =>
@@ -32,6 +70,11 @@ async function scrape() {
     const ventMoyen = findRow('vitesse moyenne du vent');
     const rafales = findRow('vitesse des rafales de vent');
 
+    console.log('Ligne ventInstant:', ventInstant);
+    console.log('Ligne direction:', direction);
+    console.log('Ligne ventMoyen:', ventMoyen);
+    console.log('Ligne rafales:', rafales);
+
     if (ventInstant) {
       const kmh = toKmh(parseNumber(ventInstant[1]));
       if (kmh != null) {
@@ -41,7 +84,11 @@ async function scrape() {
           device_class: 'wind_speed',
           state_class: 'measurement'
         });
+      } else {
+        console.log('kmh instantané = null, valeur non envoyée. Texte source:', ventInstant[1]);
       }
+    } else {
+      console.log('Aucune ligne "vitesse du vent" trouvée.');
     }
 
     if (direction) {
@@ -52,7 +99,11 @@ async function scrape() {
           friendly_name: 'Direction du vent',
           compass: match[1]
         });
+      } else {
+        console.log('Direction non parsable. Texte source:', direction[1]);
       }
+    } else {
+      console.log('Aucune ligne "direction du vent" trouvée.');
     }
 
     if (ventMoyen) {
@@ -64,7 +115,11 @@ async function scrape() {
           device_class: 'wind_speed',
           state_class: 'measurement'
         });
+      } else {
+        console.log('kmh moyen = null. Texte source:', ventMoyen[1]);
       }
+    } else {
+      console.log('Aucune ligne "vitesse moyenne du vent" trouvée.');
     }
 
     if (rafales) {
@@ -76,9 +131,22 @@ async function scrape() {
           device_class: 'wind_speed',
           state_class: 'measurement'
         });
+      } else {
+        console.log('kmh rafales = null. Texte source:', rafales);
       }
+    } else {
+      console.log('Aucune ligne "vitesse des rafales de vent" trouvée.');
     }
   } finally {
     await browser.close();
+    console.log('=== Fin du cycle ===');
   }
 }
+
+(async () => {
+  try {
+    await scrape();
+  } catch (err) {
+    console.error('Échec cycle:', err.message);
+  }
+})();
