@@ -12,8 +12,8 @@ function parseNumber(str) {
 
 const toKmh = (knots) => (knots != null ? +(knots * 1.852).toFixed(1) : null);
 
-async function pushSensor(entityId, state, attributes) {
-  console.log(`--> Envoi ${entityId} = ${state}`);
+async function scrape() {
+  console.log(`=== Début du cycle === [${new Date().toISOString()}]`);
   try {
     const res = await fetch(`${HA_URL}/${entityId}`, {
       method: 'POST',
