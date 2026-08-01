@@ -153,12 +153,12 @@ async function scrape() {
   try {
     await scrape();
   } catch (err) {
-    console.error('Échec, nouvelle tentative dans 10s:', err.message);
+    console.error(`[${new Date().toISOString()}] Échec, nouvelle tentative dans 10s:`, err.message);
     await new Promise(r => setTimeout(r, 10000));
     try {
       await scrape();
     } catch (err2) {
-      console.error('Deuxième échec, on abandonne ce cycle:', err2.message);
+      console.error(`[${new Date().toISOString()}] Deuxième échec, on abandonne ce cycle:`, err2.message);
     }
   }
 })();
