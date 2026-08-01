@@ -12,8 +12,8 @@ function parseNumber(str) {
 
 const toKmh = (knots) => (knots != null ? +(knots * 1.852).toFixed(1) : null);
 
-async function scrape() {
-  console.log(`=== Début du cycle === [${new Date().toISOString()}]`);
+async function pushSensor(entityId, state, attributes) {
+  console.log(`--> Envoi ${entityId} = ${state}`);
   try {
     const res = await fetch(`${HA_URL}/${entityId}`, {
       method: 'POST',
@@ -31,7 +31,7 @@ async function scrape() {
 }
 
 async function scrape() {
-  console.log('=== Début du cycle ===');
+  console.log(`=== Début du cycle === [${new Date().toISOString()}]`);
 
   const browser = await chromium.launch();
   const page = await browser.newPage({
@@ -46,7 +46,6 @@ async function scrape() {
     await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 });
     console.log('Page chargée.');
 
-    // Fermer un éventuel bandeau cookies (défensif, au cas où)
     try {
       for (const frame of page.frames()) {
         const btn = frame.getByText('accept', { exact: false });
@@ -77,7 +76,6 @@ async function scrape() {
 
     console.log(`Nombre de lignes de tableau trouvées: ${rows.length}`);
 
-    // NOUVEAU : si la page est vide, on considère que c'est un échec explicite
     if (rows.length === 0) {
       throw new Error('Page vide : aucune ligne de tableau trouvée (échec de chargement probable).');
     }
@@ -92,7 +90,6 @@ async function scrape() {
     const ventMoyen = findRow(['vitesse moyenne du vent', 'average wind speed', 'avg wind speed']);
     const rafales = findRow(['vitesse des rafales', 'wind gust', 'gust speed']);
 
-    // NOUVEAU : si aucune des 4 lignes attendues n'est trouvée, échec explicite aussi
     if (!ventInstant && !direction && !ventMoyen && !rafales) {
       throw new Error('Tableau trouvé mais aucune ligne de vent reconnue (changement de structure ?).');
     }
@@ -117,48 +114,3 @@ async function scrape() {
           friendly_name: 'Direction du vent',
           compass: match[1]
         });
-      }
-    }
-
-    if (ventMoyen) {
-      const kmh = toKmh(parseNumber(ventMoyen[1]));
-      if (kmh != null) {
-        await pushSensor('sensor.weatherlink_vent_moyen', kmh, {
-          unit_of_measurement: 'km/h',
-          friendly_name: 'Vent moyen (2 min)',
-          device_class: 'wind_speed',
-          state_class: 'measurement'
-        });
-      }
-    }
-
-    if (rafales) {
-      const kmh = toKmh(parseNumber(rafales[1]) ?? parseNumber(rafales[2]));
-      if (kmh != null) {
-        await pushSensor('sensor.weatherlink_rafales', kmh, {
-          unit_of_measurement: 'km/h',
-          friendly_name: 'Rafales de vent',
-          device_class: 'wind_speed',
-          state_class: 'measurement'
-        });
-      }
-    }
-  } finally {
-    await browser.close();
-    console.log('=== Fin du cycle ===');
-  }
-}
-
-(async () => {
-  try {
-    await scrape();
-  } catch (err) {
-    console.error(`[${new Date().toISOString()}] Échec, nouvelle tentative dans 10s:`, err.message);
-    await new Promise(r => setTimeout(r, 10000));
-    try {
-      await scrape();
-    } catch (err2) {
-      console.error(`[${new Date().toISOString()}] Deuxième échec, on abandonne ce cycle:`, err2.message);
-    }
-  }
-})();
