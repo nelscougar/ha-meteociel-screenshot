@@ -1,5 +1,5 @@
 name: "WeatherLink Vent Scraper"
-version: "1.0.2"
+version: "1.0.4"
 slug: "weatherlink_scraper"
 description: "Extraction du vent (vitesse, rafales, direction) depuis une page WeatherLink"
 arch:
