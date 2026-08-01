@@ -1,1 +1,10 @@
-
+name: "WeatherLink Vent Scraper"
+version: "1.0.0"
+slug: "weatherlink_scraper"
+description: "Extraction du vent (vitesse, rafales, direction) depuis une page WeatherLink"
+arch:
+  - amd64
+init: false
+homeassistant_api: true
+map:
+  - config:rw
