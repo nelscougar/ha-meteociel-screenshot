@@ -35,7 +35,12 @@ async function scrape() {
   console.log('TOKEN présent ?', TOKEN ? `oui (longueur ${TOKEN.length})` : 'NON - PROBLEME');
 
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 900, height: 900 } });
+  const page = await browser.newPage({
+    viewport: { width: 900, height: 900 },
+    locale: 'fr-FR',
+    extraHTTPHeaders: { 'Accept-Language': 'fr-FR,fr;q=0.9' }
+  });
+
   try {
     console.log('Chargement de la page WeatherLink...');
     await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 });
@@ -43,13 +48,14 @@ async function scrape() {
 
     try {
       await page.waitForFunction(
-        () => document.body.innerText.includes('Vitesse du vent'),
+        () => document.body.innerText.includes('Vitesse du vent') ||
+              document.body.innerText.includes('Wind Speed'),
         null,
         { timeout: 20000 }
       );
-      console.log('Texte "Vitesse du vent" trouvé sur la page.');
+      console.log('Texte du tableau vent trouvé sur la page.');
     } catch (e) {
-      console.log('ATTENTION: texte "Vitesse du vent" non trouvé après 20s, on tente quand même.');
+      console.log('ATTENTION: texte attendu non trouvé après 20s, on tente quand même.');
       console.log('Aperçu texte page:', (await page.innerText('body')).slice(0, 500));
     }
 
@@ -60,15 +66,15 @@ async function scrape() {
     );
 
     console.log(`Nombre de lignes de tableau trouvées: ${rows.length}`);
-    console.log('DEBUG lignes extraites:', JSON.stringify(rows.slice(0, 15)));
+    console.log('DEBUG lignes extraites (complet):', JSON.stringify(rows));
 
-    const findRow = (label) =>
-      rows.find(cells => cells[0] && cells[0].toLowerCase().includes(label.toLowerCase()));
+    const findRow = (labels) =>
+      rows.find(cells => cells[0] && labels.some(l => cells[0].toLowerCase().includes(l.toLowerCase())));
 
-    const ventInstant = findRow('vitesse du vent');
-    const direction = findRow('direction du vent');
-    const ventMoyen = findRow('vitesse moyenne du vent');
-    const rafales = findRow('vitesse des rafales de vent');
+    const ventInstant = findRow(['vitesse du vent', 'wind speed']);
+    const direction = findRow(['direction du vent', 'wind direction']);
+    const ventMoyen = findRow(['vitesse moyenne du vent', 'average wind speed', 'avg wind speed']);
+    const rafales = findRow(['vitesse des rafales', 'wind gust', 'gust speed']);
 
     console.log('Ligne ventInstant:', ventInstant);
     console.log('Ligne direction:', direction);
