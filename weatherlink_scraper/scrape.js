@@ -32,19 +32,30 @@ async function pushSensor(entityId, state, attributes) {
 
 async function scrape() {
   console.log('=== Début du cycle ===');
-  console.log('TOKEN présent ?', TOKEN ? `oui (longueur ${TOKEN.length})` : 'NON - PROBLEME');
 
   const browser = await chromium.launch();
   const page = await browser.newPage({
     viewport: { width: 900, height: 900 },
     locale: 'fr-FR',
-    extraHTTPHeaders: { 'Accept-Language': 'fr-FR,fr;q=0.9' }
+    extraHTTPHeaders: { 'Accept-Language': 'fr-FR,fr;q=0.9' },
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
   });
 
   try {
     console.log('Chargement de la page WeatherLink...');
     await page.goto(URL, { waitUntil: 'networkidle', timeout: 30000 });
     console.log('Page chargée.');
+
+    // Fermer un éventuel bandeau cookies (défensif, au cas où)
+    try {
+      for (const frame of page.frames()) {
+        const btn = frame.getByText('accept', { exact: false });
+        if (await btn.count() > 0) {
+          await btn.first().click({ timeout: 2000 });
+          console.log('Bandeau cookies fermé.');
+        }
+      }
+    } catch (e) {}
 
     try {
       await page.waitForFunction(
@@ -55,8 +66,7 @@ async function scrape() {
       );
       console.log('Texte du tableau vent trouvé sur la page.');
     } catch (e) {
-      console.log('ATTENTION: texte attendu non trouvé après 20s, on tente quand même.');
-      console.log('Aperçu texte page:', (await page.innerText('body')).slice(0, 500));
+      console.log('ATTENTION: texte attendu non trouvé après 20s.');
     }
 
     await page.waitForTimeout(1000);
@@ -66,6 +76,12 @@ async function scrape() {
     );
 
     console.log(`Nombre de lignes de tableau trouvées: ${rows.length}`);
+
+    // NOUVEAU : si la page est vide, on considère que c'est un échec explicite
+    if (rows.length === 0) {
+      throw new Error('Page vide : aucune ligne de tableau trouvée (échec de chargement probable).');
+    }
+
     console.log('DEBUG lignes extraites (complet):', JSON.stringify(rows));
 
     const findRow = (labels) =>
@@ -76,10 +92,10 @@ async function scrape() {
     const ventMoyen = findRow(['vitesse moyenne du vent', 'average wind speed', 'avg wind speed']);
     const rafales = findRow(['vitesse des rafales', 'wind gust', 'gust speed']);
 
-    console.log('Ligne ventInstant:', ventInstant);
-    console.log('Ligne direction:', direction);
-    console.log('Ligne ventMoyen:', ventMoyen);
-    console.log('Ligne rafales:', rafales);
+    // NOUVEAU : si aucune des 4 lignes attendues n'est trouvée, échec explicite aussi
+    if (!ventInstant && !direction && !ventMoyen && !rafales) {
+      throw new Error('Tableau trouvé mais aucune ligne de vent reconnue (changement de structure ?).');
+    }
 
     if (ventInstant) {
       const kmh = toKmh(parseNumber(ventInstant[1]));
@@ -90,11 +106,7 @@ async function scrape() {
           device_class: 'wind_speed',
           state_class: 'measurement'
         });
-      } else {
-        console.log('kmh instantané = null, valeur non envoyée. Texte source:', ventInstant[1]);
       }
-    } else {
-      console.log('Aucune ligne "vitesse du vent" trouvée.');
     }
 
     if (direction) {
@@ -105,11 +117,7 @@ async function scrape() {
           friendly_name: 'Direction du vent',
           compass: match[1]
         });
-      } else {
-        console.log('Direction non parsable. Texte source:', direction[1]);
       }
-    } else {
-      console.log('Aucune ligne "direction du vent" trouvée.');
     }
 
     if (ventMoyen) {
@@ -121,11 +129,7 @@ async function scrape() {
           device_class: 'wind_speed',
           state_class: 'measurement'
         });
-      } else {
-        console.log('kmh moyen = null. Texte source:', ventMoyen[1]);
       }
-    } else {
-      console.log('Aucune ligne "vitesse moyenne du vent" trouvée.');
     }
 
     if (rafales) {
@@ -137,11 +141,7 @@ async function scrape() {
           device_class: 'wind_speed',
           state_class: 'measurement'
         });
-      } else {
-        console.log('kmh rafales = null. Texte source:', rafales);
       }
-    } else {
-      console.log('Aucune ligne "vitesse des rafales de vent" trouvée.');
     }
   } finally {
     await browser.close();
