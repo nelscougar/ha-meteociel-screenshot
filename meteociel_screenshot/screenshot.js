@@ -14,7 +14,7 @@ const CAPTURES = [
   },
   {
     name: 'knots',
-    url: `https://www.meteociel.fr/temps-reel/obs_villes.php?affint=1&code2=7681&jour2=${day}&mois2=${month}&annee2=${year}&option=1`,
+    url: `https://www.meteociel.fr/temps-reel/obs_villes.php?code2=7681&affint=1&option=1`,
     output: '/config/www/meteociel_vent_knots.png'
   }
 ];
