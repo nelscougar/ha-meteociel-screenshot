@@ -5,13 +5,17 @@ const CAPTURES = [
     name: 'knots',
     url: 'https://www.meteociel.fr/temps-reel/obs_villes.php?affint=1&code2=7681&option=1',
     output: '/config/www/meteociel_vent_knots.png',
-    wait: 4000
+    wait: 4000,
+    targetRow: 2,    // 2eme ligne
+    targetCol: 1     // 1ere colonne
   },
   {
     name: 'kmh',
     url: 'https://www.meteociel.fr/temps-reel/obs_villes.php?code2=83061007&affint=1',
     output: '/config/www/meteociel_vent.png',
-    wait: 2000
+    wait: 2000,
+    targetRow: 2,    // 2eme ligne
+    targetCol: 1     // 1ere colonne
   }
 ];
 
@@ -35,59 +39,60 @@ async function closeCookieBanner(page) {
   return false;
 }
 
-async function findGraphBox(page) {
-  // 1. Recherche par proximite de texte "vent" (le plus fiable)
-  const byText = await page.evaluate(() => {
-    const imgs = Array.from(document.querySelectorAll('img'))
+async function findGraphBox(page, targetRow, targetCol) {
+  // Recupere toutes les images qui ressemblent a des graphiques
+  const imgs = await page.evaluate(() => {
+    return Array.from(document.querySelectorAll('img'))
       .map(img => {
         const r = img.getBoundingClientRect();
-        return { img, x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+        return {
+          x: Math.round(r.x), y: Math.round(r.y),
+          width: Math.round(r.width), height: Math.round(r.height),
+          src: img.src || '', alt: img.alt || ''
+        };
       })
-      .filter(b => b.width > 250 && b.width < 900 && b.height > 100 && b.height < 350 && b.y > 200);
-
-    const scored = imgs.map(b => {
-      // Cherche le texte le plus proche AU-DESSUS de l'image (titre du graphique)
-      let label = '';
-      let el = b.img.previousElementSibling;
-      let hops = 0;
-      while (el && hops < 6 && !label) {
-        label += ' ' + (el.textContent || '');
-        el = el.previousElementSibling;
-        hops++;
-      }
-      // Remonte aussi dans le parent si rien trouve au meme niveau
-      if (!label.trim() && b.img.parentElement) {
-        label = b.img.parentElement.textContent || '';
-      }
-      return {
-        x: b.x, y: b.y, width: b.width, height: b.height,
-        src: b.img.src || '', alt: b.img.alt || '',
-        label: label.toLowerCase()
-      };
-    });
-
-    return scored;
+      .filter(b => b.width > 250 && b.width < 900 && b.height > 100 && b.height < 350 && b.y > 150);
   });
 
-  console.log('  Candidats (texte proche):');
-  byText.forEach(c => console.log('    - ' + c.width + 'x' + c.height + ' @ ' + c.x + ',' + c.y + ' | label: "' + c.label.substring(0,60).trim() + '..."'));
+  console.log('  ' + imgs.length + ' image(s) candidate(s) trouvee(s)');
 
-  // Priorite 1 : contient "vent" et pas "temp" ni "pression"
-  let match = byText.find(c => c.label.includes('vent') && !c.label.includes('temp') && !c.label.includes('pression'));
-
-  // Priorite 2 : fallback -> le graphique le plus bas dans la page (vent = sous la temperature par defaut)
-  if (!match && byText.length > 0) {
-    const sortedByY = [...byText].sort((a, b) => b.y - a.y);
-    match = sortedByY[0];
-    console.log('  -> Aucun label "vent" trouve, fallback sur le graphique le plus bas');
+  if (imgs.length === 0) {
+    return { x: 560, y: 410, width: 530, height: 195, isFallback: true };
   }
 
-  if (match) {
-    console.log('  -> Choisi: ' + match.width + 'x' + match.height + ' @ ' + match.x + ',' + match.y);
-    return match;
+  // Regroupe par ligne : deux images sont sur la meme ligne si leurs Y sont proches (tolerance 30px)
+  const rows = [];
+  const sortedByY = [...imgs].sort((a, b) => a.y - b.y);
+  for (const img of sortedByY) {
+    let row = rows.find(r => Math.abs(r[0].y - img.y) < 30);
+    if (row) {
+      row.push(img);
+    } else {
+      rows.push([img]);
+    }
   }
 
-  console.log('  ATTENTION Fallback manuel utilise - resultat probablement incorrect');
+  // Trie chaque ligne par X (colonnes de gauche a droite)
+  rows.forEach(row => row.sort((a, b) => a.x - b.x));
+
+  console.log('  Grille detectee: ' + rows.length + ' ligne(s)');
+  rows.forEach((row, i) => {
+    console.log('    Ligne ' + (i + 1) + ': ' + row.length + ' colonne(s)');
+    row.forEach((img, j) => {
+      console.log('      Col ' + (j + 1) + ': ' + img.width + 'x' + img.height + ' @ ' + img.x + ',' + img.y);
+    });
+  });
+
+  const rowIndex = targetRow - 1;
+  const colIndex = targetCol - 1;
+
+  if (rows[rowIndex] && rows[rowIndex][colIndex]) {
+    const chosen = rows[rowIndex][colIndex];
+    console.log('  -> Choisi: ligne ' + targetRow + ', colonne ' + targetCol + ' = ' + chosen.width + 'x' + chosen.height + ' @ ' + chosen.x + ',' + chosen.y);
+    return chosen;
+  }
+
+  console.log('  ATTENTION: position ligne ' + targetRow + '/colonne ' + targetCol + ' introuvable, fallback manuel');
   return { x: 560, y: 410, width: 530, height: 195, isFallback: true };
 }
 
@@ -104,10 +109,10 @@ async function captureOne(browser, config) {
 
     await page.evaluate(() => window.scrollTo(0, 300));
 
-    const box = await findGraphBox(page);
+    const box = await findGraphBox(page, config.targetRow, config.targetCol);
 
     if (box.isFallback) {
-      console.log('  ERREUR: aucun graphique detecte, capture annulee pour ' + config.name);
+      console.log('  ERREUR: graphique cible introuvable, capture annulee pour ' + config.name);
       return;
     }
 
