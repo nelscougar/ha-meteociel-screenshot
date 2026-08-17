@@ -2,16 +2,16 @@ const { chromium } = require('playwright');
 
 const CAPTURES = [
   {
-    name: 'kmh',
-    url: 'https://www.meteociel.fr/temps-reel/obs_villes.php?code2=7681&affint=1',
-    output: '/config/www/meteociel_vent.png',
-    wait: 2000
-  },
-  {
     name: 'knots',
-    url: 'https://www.meteociel.fr/temps-reel/obs_villes.php?code2=7681&affint=1&option=1',
+    url: 'https://www.meteociel.fr/temps-reel/obs_villes.php?affint=1&code2=7681&option=1',
     output: '/config/www/meteociel_vent_knots.png',
     wait: 4000
+  },
+  {
+    name: 'kmh',
+    url: 'https://www.meteociel.fr/temps-reel/obs_villes.php?code2=83061007&affint=1',
+    output: '/config/www/meteociel_vent.png',
+    wait: 2000
   }
 ];
 
@@ -99,11 +99,6 @@ async function captureOne(browser, config) {
     await page.goto(config.url, { waitUntil: 'networkidle', timeout: 30000 });
     await closeCookieBanner(page);
     await page.waitForTimeout(config.wait || 2000);
-
-    // Debug : capture plein ecran pour inspection
-    const debugPath = '/config/www/debug_' + config.name + '.png';
-    await page.screenshot({ path: debugPath, fullPage: true });
-    console.log('  Debug plein ecran: ' + debugPath);
 
     await page.evaluate(() => window.scrollTo(0, 300));
 
