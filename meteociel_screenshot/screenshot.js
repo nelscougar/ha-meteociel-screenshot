@@ -3,19 +3,19 @@ const { chromium } = require('playwright');
 const CAPTURES = [
   {
     name: 'knots',
-    url: 'https://www.meteociel.fr/temps-reel/obs_villes.php?affint=1&code2=7681&option=1',
+    url: 'https://www.meteociel.fr/temps-reel/obs_villes.php?code2=7681&affint=1',
     output: '/config/www/meteociel_vent_knots.png',
-    wait: 4000,
-    targetRow: 2,    // 2eme ligne
-    targetCol: 1     // 1ere colonne
+    wait: 3000,
+    mode: 'single'      // une seule image sur toute la page
   },
   {
     name: 'kmh',
     url: 'https://www.meteociel.fr/temps-reel/obs_villes.php?code2=83061007&affint=1',
     output: '/config/www/meteociel_vent.png',
     wait: 2000,
-    targetRow: 2,    // 2eme ligne
-    targetCol: 1     // 1ere colonne
+    mode: 'grid',        // grille de graphiques, on prend ligne 2 / colonne 1
+    targetRow: 2,
+    targetCol: 1
   }
 ];
 
@@ -39,28 +39,42 @@ async function closeCookieBanner(page) {
   return false;
 }
 
-async function findGraphBox(page, targetRow, targetCol) {
-  // Recupere toutes les images qui ressemblent a des graphiques
-  const imgs = await page.evaluate(() => {
+async function getCandidateImages(page) {
+  return await page.evaluate(() => {
     return Array.from(document.querySelectorAll('img'))
       .map(img => {
         const r = img.getBoundingClientRect();
         return {
           x: Math.round(r.x), y: Math.round(r.y),
-          width: Math.round(r.width), height: Math.round(r.height),
-          src: img.src || '', alt: img.alt || ''
+          width: Math.round(r.width), height: Math.round(r.height)
         };
       })
       .filter(b => b.width > 250 && b.width < 900 && b.height > 100 && b.height < 350 && b.y > 150);
   });
+}
 
+async function findGraphBoxSingle(page) {
+  const imgs = await getCandidateImages(page);
   console.log('  ' + imgs.length + ' image(s) candidate(s) trouvee(s)');
 
   if (imgs.length === 0) {
-    return { x: 560, y: 410, width: 530, height: 195, isFallback: true };
+    return { isFallback: true };
   }
 
-  // Regroupe par ligne : deux images sont sur la meme ligne si leurs Y sont proches (tolerance 30px)
+  // Une seule image attendue : on prend la premiere
+  const chosen = imgs[0];
+  console.log('  -> Choisi (image unique): ' + chosen.width + 'x' + chosen.height + ' @ ' + chosen.x + ',' + chosen.y);
+  return chosen;
+}
+
+async function findGraphBoxGrid(page, targetRow, targetCol) {
+  const imgs = await getCandidateImages(page);
+  console.log('  ' + imgs.length + ' image(s) candidate(s) trouvee(s)');
+
+  if (imgs.length === 0) {
+    return { isFallback: true };
+  }
+
   const rows = [];
   const sortedByY = [...imgs].sort((a, b) => a.y - b.y);
   for (const img of sortedByY) {
@@ -71,8 +85,6 @@ async function findGraphBox(page, targetRow, targetCol) {
       rows.push([img]);
     }
   }
-
-  // Trie chaque ligne par X (colonnes de gauche a droite)
   rows.forEach(row => row.sort((a, b) => a.x - b.x));
 
   console.log('  Grille detectee: ' + rows.length + ' ligne(s)');
@@ -92,8 +104,8 @@ async function findGraphBox(page, targetRow, targetCol) {
     return chosen;
   }
 
-  console.log('  ATTENTION: position ligne ' + targetRow + '/colonne ' + targetCol + ' introuvable, fallback manuel');
-  return { x: 560, y: 410, width: 530, height: 195, isFallback: true };
+  console.log('  ATTENTION: position ligne ' + targetRow + '/colonne ' + targetCol + ' introuvable');
+  return { isFallback: true };
 }
 
 async function captureOne(browser, config) {
@@ -106,13 +118,14 @@ async function captureOne(browser, config) {
     await page.goto(config.url, { waitUntil: 'networkidle', timeout: 30000 });
     await closeCookieBanner(page);
     await page.waitForTimeout(config.wait || 2000);
-
     await page.evaluate(() => window.scrollTo(0, 300));
 
-    const box = await findGraphBox(page, config.targetRow, config.targetCol);
+    const box = config.mode === 'single'
+      ? await findGraphBoxSingle(page)
+      : await findGraphBoxGrid(page, config.targetRow, config.targetCol);
 
     if (box.isFallback) {
-      console.log('  ERREUR: graphique cible introuvable, capture annulee pour ' + config.name);
+      console.log('  ERREUR: graphique introuvable, capture annulee pour ' + config.name);
       return;
     }
 
