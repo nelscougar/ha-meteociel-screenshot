@@ -1,21 +1,22 @@
 const { chromium } = require('playwright');
 
-// ── Date du jour pour l'URL knots ──
 const now = new Date();
 const day = now.getDate();
-const month = now.getMonth() + 1; // 1-12
+const month = now.getMonth() + 1;
 const year = now.getFullYear();
 
 const CAPTURES = [
   {
     name: 'km/h',
     url: 'https://www.meteociel.fr/temps-reel/obs_villes.php?code2=7681&affint=1',
-    output: '/config/www/meteociel_vent.png'
+    output: '/config/www/meteociel_vent.png',
+    wait: 2000
   },
   {
     name: 'knots',
-    url: `https://www.meteociel.fr/temps-reel/obs_villes.php?code2=7681&affint=1&option=1`,
-    output: '/config/www/meteociel_vent_knots.png'
+    url: `https://www.meteociel.fr/temps-reel/obs_villes.php?affint=1&code2=7681&jour2=${day}&mois2=${month}&annee2=${year}&option=1`,
+    output: '/config/www/meteociel_vent_knots.png',
+    wait: 4000  // ← page knots plus lente à générer le graphique
   }
 ];
 
@@ -28,7 +29,7 @@ async function closeCookieBanner(page) {
           const btn = frame.getByText(text, { exact: false });
           if (await btn.count() > 0) {
             await btn.first().click({ timeout: 2000 });
-            console.log(`Bandeau cookies fermé (frame: ${frame.url()})`);
+            console.log(`  Cookies fermés`);
             return true;
           }
         } catch (e) {}
@@ -36,13 +37,14 @@ async function closeCookieBanner(page) {
     }
     await page.waitForTimeout(1000);
   }
-  console.log('Pas de bandeau cookies trouvé.');
   return false;
 }
 
 async function findGraphBox(page) {
+  // ── 1. Sélecteurs directs ──
   const selectors = [
     'img[src*="graphique"]',
+    'img[src*="graph"]',
     'img[src*="obs_villes"]',
     'img[alt*="vent"]',
     'img[alt*="température"]',
@@ -58,7 +60,8 @@ async function findGraphBox(page) {
       const el = page.locator(sel).first();
       if (await el.count() > 0) {
         const box = await el.boundingBox();
-        if (box && box.width > 200 && box.height > 80) {
+        // ⛔ EXCLUT la bannière : doit être assez bas ET avoir une hauteur de graphique
+        if (box && box.width > 200 && box.height > 80 && box.height < 350 && box.y > 150) {
           console.log(`  → Graphique trouvé via: ${sel} (${Math.round(box.width)}×${Math.round(box.height)})`);
           return box;
         }
@@ -66,26 +69,36 @@ async function findGraphBox(page) {
     } catch (e) {}
   }
 
-  // Fallback : plus grand <img>
+  // ── 2. Fallback : scan tous les <img> ──
   const candidates = await page.evaluate(() => {
     return Array.from(document.querySelectorAll('img'))
       .map(img => {
         const r = img.getBoundingClientRect();
         return {
           x: Math.round(r.x), y: Math.round(r.y),
-          width: Math.round(r.width), height: Math.round(r.height)
+          width: Math.round(r.width), height: Math.round(r.height),
+          src: img.src || '', alt: img.alt || ''
         };
       })
-      .filter(b => b.width > 250 && b.height > 80 && b.width < 1000);
+      .filter(b => {
+        // Doit ressembler à un graphique, PAS une bannière
+        return b.width > 250 && b.width < 900
+            && b.height > 100 && b.height < 350   // ni icône, ni bannière
+            && b.y > 200;                          // ⛔ PAS en haut de page
+      });
   });
+
+  console.log(`  Candidats trouvés: ${candidates.length}`);
+  candidates.forEach(c => console.log(`    - ${c.width}×${c.height} @ ${c.x},${c.y} | ${c.src.substring(0,50)}...`));
 
   if (candidates.length > 0) {
     candidates.sort((a, b) => (b.width * b.height) - (a.width * a.height));
     const best = candidates[0];
-    console.log(`  → Graphique trouvé via scan: ${best.width}×${best.height}`);
+    console.log(`  → Choisi: ${best.width}×${best.height} @ ${best.x},${best.y}`);
     return best;
   }
 
+  // ── 3. Dernier recours ──
   console.log('  ⚠️ Fallback manuel');
   return { x: 560, y: 410, width: 530, height: 195 };
 }
@@ -93,12 +106,15 @@ async function findGraphBox(page) {
 async function captureOne(browser, config) {
   const page = await browser.newPage({ viewport: { width: 2000, height: 1200 } });
   try {
-    console.log(`\n📸 Capture [${config.name}]`);
+    console.log(`\n📸 [${config.name}]`);
     console.log(`   URL: ${config.url}`);
 
     await page.goto(config.url, { waitUntil: 'networkidle', timeout: 30000 });
     await closeCookieBanner(page);
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(config.wait || 2000);
+
+    // Scroll au cas où le graphique serait plus bas
+    await page.evaluate(() => window.scrollTo(0, 300));
 
     const box = await findGraphBox(page);
 
@@ -111,11 +127,10 @@ async function captureOne(browser, config) {
 
     await page.screenshot({ path: config.output, clip });
 
-    console.log(`   ✅ Sauvegardé: ${config.output}`);
-    console.log(`   📐 ${clip.width}×${clip.height}`);
+    console.log(`   ✅ ${config.output} (${clip.width}×${clip.height})`);
 
   } catch (err) {
-    console.error(`   ❌ Échec [${config.name}]: ${err.message}`);
+    console.error(`   ❌ [${config.name}]: ${err.message}`);
     throw err;
   } finally {
     await page.close();
@@ -129,7 +144,7 @@ async function captureOne(browser, config) {
       try {
         await captureOne(browser, config);
       } catch (err) {
-        console.log(`   🔄 Nouvelle tentative [${config.name}] dans 10s...`);
+        console.log(`   🔄 Retry [${config.name}] dans 10s...`);
         await new Promise(r => setTimeout(r, 10000));
         await captureOne(browser, config);
       }
