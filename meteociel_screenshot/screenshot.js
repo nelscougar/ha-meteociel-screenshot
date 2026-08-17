@@ -36,53 +36,55 @@ async function closeCookieBanner(page) {
 }
 
 async function findGraphBox(page) {
-  const selectors = [
-    'img[src*="graphique"]',
-    'img[src*="graph"]',
-    'img[src*="obs_villes"]',
-    'img[alt*="vent"]',
-    'img[alt*="temperature"]',
-    'img[width="500"]',
-    'img[width="520"]',
-    'img[width="530"]',
-    'table + img',
-    'td > img',
-  ];
-
-  for (const sel of selectors) {
-    try {
-      const el = page.locator(sel).first();
-      if (await el.count() > 0) {
-        const box = await el.boundingBox();
-        if (box && box.width > 200 && box.height > 80 && box.height < 350 && box.y > 150) {
-          console.log('  -> Graphique trouve via: ' + sel + ' (' + Math.round(box.width) + 'x' + Math.round(box.height) + ')');
-          return box;
-        }
-      }
-    } catch (e) {}
-  }
-
-  const candidates = await page.evaluate(() => {
-    return Array.from(document.querySelectorAll('img'))
+  // 1. Recherche par proximite de texte "vent" (le plus fiable)
+  const byText = await page.evaluate(() => {
+    const imgs = Array.from(document.querySelectorAll('img'))
       .map(img => {
         const r = img.getBoundingClientRect();
-        return {
-          x: Math.round(r.x), y: Math.round(r.y),
-          width: Math.round(r.width), height: Math.round(r.height),
-          src: img.src || '', alt: img.alt || ''
-        };
+        return { img, x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
       })
       .filter(b => b.width > 250 && b.width < 900 && b.height > 100 && b.height < 350 && b.y > 200);
+
+    const scored = imgs.map(b => {
+      // Cherche le texte le plus proche AU-DESSUS de l'image (titre du graphique)
+      let label = '';
+      let el = b.img.previousElementSibling;
+      let hops = 0;
+      while (el && hops < 6 && !label) {
+        label += ' ' + (el.textContent || '');
+        el = el.previousElementSibling;
+        hops++;
+      }
+      // Remonte aussi dans le parent si rien trouve au meme niveau
+      if (!label.trim() && b.img.parentElement) {
+        label = b.img.parentElement.textContent || '';
+      }
+      return {
+        x: b.x, y: b.y, width: b.width, height: b.height,
+        src: b.img.src || '', alt: b.img.alt || '',
+        label: label.toLowerCase()
+      };
+    });
+
+    return scored;
   });
 
-  console.log('  Candidats trouves: ' + candidates.length);
-  candidates.forEach(c => console.log('    - ' + c.width + 'x' + c.height + ' @ ' + c.x + ',' + c.y + ' | ' + c.src.substring(0,50)));
+  console.log('  Candidats (texte proche):');
+  byText.forEach(c => console.log('    - ' + c.width + 'x' + c.height + ' @ ' + c.x + ',' + c.y + ' | label: "' + c.label.substring(0,60).trim() + '..."'));
 
-  if (candidates.length > 0) {
-    candidates.sort((a, b) => (b.width * b.height) - (a.width * a.height));
-    const best = candidates[0];
-    console.log('  -> Choisi: ' + best.width + 'x' + best.height + ' @ ' + best.x + ',' + best.y);
-    return best;
+  // Priorite 1 : contient "vent" et pas "temp" ni "pression"
+  let match = byText.find(c => c.label.includes('vent') && !c.label.includes('temp') && !c.label.includes('pression'));
+
+  // Priorite 2 : fallback -> le graphique le plus bas dans la page (vent = sous la temperature par defaut)
+  if (!match && byText.length > 0) {
+    const sortedByY = [...byText].sort((a, b) => b.y - a.y);
+    match = sortedByY[0];
+    console.log('  -> Aucun label "vent" trouve, fallback sur le graphique le plus bas');
+  }
+
+  if (match) {
+    console.log('  -> Choisi: ' + match.width + 'x' + match.height + ' @ ' + match.x + ',' + match.y);
+    return match;
   }
 
   console.log('  ATTENTION Fallback manuel utilise - resultat probablement incorrect');
