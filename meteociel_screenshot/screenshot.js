@@ -115,9 +115,18 @@ async function captureOne(browser, config) {
     console.log('CAPTURE [' + config.name + ']');
     console.log('  URL: ' + config.url);
 
-    await page.goto(config.url, { waitUntil: 'networkidle', timeout: 30000 });
-    await closeCookieBanner(page);
-    await page.waitForTimeout(config.wait || 2000);
+    const response = await page.goto(config.url, { waitUntil: 'networkidle', timeout: 30000 });
+console.log('  HTTP status: ' + (response ? response.status() : 'aucune réponse'));
+await closeCookieBanner(page);
+await page.waitForTimeout(config.wait || 2000);
+
+// DEBUG temporaire
+const bodyText = await page.evaluate(() => document.body ? document.body.innerText.slice(0, 400) : 'PAS DE BODY');
+console.log('  Texte de la page : ' + JSON.stringify(bodyText));
+const html = await page.content();
+console.log('  Taille HTML : ' + html.length + ' octets');
+require('fs').writeFileSync('/config/www/debug_' + config.name + '.html', html);
+await page.screenshot({ path: '/config/www/debug_' + config.name + '.png', fullPage: true });
     await page.evaluate(() => window.scrollTo(0, 300));
 
     const box = config.mode === 'single'
