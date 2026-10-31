@@ -60,7 +60,6 @@ async function getCandidateImages(page) {
   });
 }
 
-}
 
 async function findGraphBoxSingle(page) {
   const imgs = await getCandidateImages(page);
