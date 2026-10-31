@@ -41,16 +41,25 @@ async function closeCookieBanner(page) {
 
 async function getCandidateImages(page) {
   return await page.evaluate(() => {
-    return Array.from(document.querySelectorAll('img'))
+    return Array.from(document.querySelectorAll('#graphs img'))
       .map(img => {
         const r = img.getBoundingClientRect();
         return {
-          x: Math.round(r.x), y: Math.round(r.y),
-          width: Math.round(r.width), height: Math.round(r.height)
+          x: Math.round(r.x),
+          y: Math.round(r.y),
+          width: Math.round(r.width),
+          height: Math.round(r.height)
         };
       })
-      .filter(b => b.width > 250 && b.width < 900 && b.height > 100 && b.height < 350 && b.y > 150);
+      .filter(b =>
+        b.width > 250 &&
+        b.width < 900 &&
+        b.height > 100 &&
+        b.height < 350
+      );
   });
+}
+
 }
 
 async function findGraphBoxSingle(page) {
